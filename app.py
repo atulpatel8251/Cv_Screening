@@ -17,7 +17,7 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 import tempfile
 from spire.doc import Document
-from dotenv import load_dotenv
+#from dotenv import load_dotenv
 # load_dotenv()
 #from langchain.prompts import PromptTemplate
 logging.basicConfig(filename='app.log', level=logging.ERROR)
