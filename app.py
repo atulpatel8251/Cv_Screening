@@ -18,7 +18,7 @@ from dateutil.relativedelta import relativedelta
 import tempfile
 from spire.doc import Document
 from dotenv import load_dotenv
-load_dotenv()
+# load_dotenv()
 #from langchain.prompts import PromptTemplate
 logging.basicConfig(filename='app.log', level=logging.ERROR)
 
@@ -91,7 +91,7 @@ with open('style.css') as f:
 images = ['6MarkQ']
 
 
-openai.api_key = os.getenv('api_key')
+openai.api_key = st.secrets["secret_section"]["OPENAI_API_KEY"]
 
 # Function to extract text from PDF uploaded via Streamlit
 
