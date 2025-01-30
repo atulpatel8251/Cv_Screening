@@ -482,7 +482,7 @@ def match_cv_with_criteria(cv_text, criteria_json):
         "  \"Matching Education\": [List of matched ESSENTIAL education qualifications],\n"
         "  \"Matching Experience\": [List of matched ESSENTIAL work experiences],\n"
         "  \"Matching Skills\": [List of matched ESSENTIAL skills],\n"
-        "  \"Matching Certifications\": [],\n"
+        "  \"Matching Certifications\": [list of matching certification from essential criteria Only],\n"
         "  \"Missing Requirements\": [ONLY missing ESSENTIAL requirements],\n"
         "  \"Skill Stratification\": {\"skill1\": score, \"skill2\": score},\n"
         "  \"Pass\": true/false based STRICTLY on ESSENTIAL criteria\n"
