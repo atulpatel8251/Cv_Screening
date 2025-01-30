@@ -592,48 +592,49 @@ def extract_required_experience(experience_str):
     
 def get_skill_score_justification(criteria_json, skill, score, cv_text):
     """
-    Generate a justification for the skill score based on the candidate's resume text
+    Generate a unique justification for the skill score based on the candidate's resume text
     and evaluation criteria.
     
     :param criteria_json: JSON object with evaluation criteria
     :param skill: Skill being evaluated
     :param score: Score assigned to the skill
     :param cv_text: Candidate's resume text
-    :return: Justification for the skill score
+    :return: Unique justification for the skill score
     """
-    # Prepare the prompt
+    # Prepare the prompt with a focus on unique explanations
     if score == 0:
         prompt = (
-            f"Based on the evaluation criteria provided in {criteria_json}, explain in 2 bullet points only,explain every bullent points just 20 words only why the candidate's "
-            f"resume text '{cv_text}' does not demonstrate the necessary skills for '{skill}', resulting in a score of {score}/10. "
-            "Focus on specific, unique shortcomings in the candidate's resume text that justify this score. "
-            "Avoid generic or repetitive explanations across different resumes."
-            "*Strictly Every Bullent Points are started from next line.*"
+            f"Evaluate the candidate's skill '{skill}' based on the given criteria {criteria_json}. "
+            f"The resume text is: '{cv_text}'. "
+            "Explain in 2 distinct bullet points (20 words max each) why the resume does not meet the skill requirements."
+            "Reference missing keywords, project details, or experience gaps based on industry standards."
+            "Avoid repeating justifications across different resumes."
+            "\n*Each bullet point must start on a new line.*"
         )
     else:
         prompt = (
-            f"Based on the evaluation criteria provided in {criteria_json}, provide a concise justification in 2 bullet points only,explain every bullent points just 20 words only "
-            f"explaining why the candidate's resume text '{cv_text}' demonstrates a match for the skill '{skill}' with a score of {score}/10. "
-            "Focus on specific, unique strengths in the candidate's resume text that align with the criteria and justify the score. "
-            "Avoid reusing the same points for different resumes and ensure each explanation is unique."
-            "*Strictly Every Bullent Points are started from next line.*"
+            f"Evaluate the candidate's skill '{skill}' based on the given criteria {criteria_json}. "
+            f"The resume text is: '{cv_text}'. "
+            "Explain in 2 distinct bullet points (20 words max each) why the resume justifies a score of {score}/10."
+            "Highlight specific achievements, project contributions, or relevant skills from the resume."
+            "Ensure uniqueness for each candidate—avoid generic reasoning."
+            "\n*Each bullet point must start on a new line.*"
         )
 
-    # Using the 'openai.chat.completions.create' method
+    # OpenAI API call
     response = openai.chat.completions.create(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "system", "content": "You are an expert recruiter analyzing resumes."},
             {"role": "user", "content": prompt}
         ],
         max_tokens=100,
-        temperature=0.1
+        temperature=0.3  # Slightly increase temperature for variability
     )
 
-    # Access the explanation from the response
+    # Extract response content
     explanation = response.choices[0].message.content.strip()
 
-    # Return the explanation
     return explanation
 
 def display_pass_fail_verdict(results, cv_text):
