@@ -17,9 +17,7 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 import tempfile
 from spire.doc import Document
-#from dotenv import load_dotenv
-# load_dotenv()
-#from langchain.prompts import PromptTemplate
+
 logging.basicConfig(filename='app.log', level=logging.ERROR)
 
 # Set Streamlit to use wide mode for the full width of the page
@@ -222,22 +220,63 @@ def classify_criteria(criteria_json):
     return essential_criteria, desired_skills
 # Function to use GenAI to extract criteria from job description
 def use_genai_to_extract_criteria(jd_text):
+    #print("job description:",jd_text)
     prompt = (
-        "Extract and structure the following details from the job description: "
-        "1. Education requirements "
-        "2. Required experience "
-        "3. Mandatory skills "
-        "4. Certifications "
-        "5. Desired skills (for brownie points). "
-        "The job description is as follows:\n\n"
-        f"{jd_text}\n\n"
-        "Please provide the response as a JSON object. For example:\n"
-        "{\"education\": \"Bachelor's Degree, Master's Degree\", "
-        "\"experience\": \"5 years experience in data science\", "
-        "\"skills\": \"Python, SQL, Machine Learning\", "
-        "\"Certifications\": \"AWS Certified, PMP\", "
-        "\"desired_skills\": \"Deep Learning, NLP\"}"
-    )
+        f"""As an expert HR consultant, your task is to analyze the given Job Description (JD) and extract structured information in JSON format. The JD may list job role, education, experience, skills, and certifications under both Essential Criteria and Desirable Criteria, so you must carefully read the JD text and classify each requirement accordingly.
+            Extraction Guidelines:
+            "Essential Criteria" includes:
+
+            "education": Qualifications explicitly listed as mandatory or required.
+            "experience": Minimum experience required for eligibility.
+            "skills": Only the core skills that are required for the role.
+            "certifications": Certifications explicitly required in the JD.
+            "Desirable Criteria" includes:
+
+            "education": Qualifications listed as preferred, but not mandatory.
+            "experience": Additional experience that is preferred, but not required.
+            "skills": Additional or nice-to-have skills.
+            "certifications": Certifications mentioned as beneficial, but not required.
+            Key Classification Rules:
+            Do not assume all certifications belong to "desired_skills".
+            If a certification is mandatory, place it in "Essential Criteria".
+            If a certification is preferred, place it in "Desirable Criteria".
+            Similarly, classify education, experience, and skills based on their mention in the JD.
+            Expected JSON Output Format:
+
+            {{
+            "Essential Criteria": {{
+                "education": "<Extracted mandatory education>",
+                "experience": "<Extracted mandatory experience>",
+                "skills": "<Extracted mandatory skills>",
+                "certifications": "<Extracted mandatory certifications>"
+            }},
+            "Desirable Criteria": {{
+                "education": "<Extracted preferred education>",
+                "experience": "<Extracted preferred experience>",
+                "skills": "<Extracted preferred skills>",
+                "certifications": "<Extracted preferred certifications>"
+            }}
+            }}
+            Example JD Classification Logic:
+            Example 1:
+            JD states: "B.E. / B.Tech is required, while an MBA is preferred."
+
+            Essential Criteria → education: "B.E. / B.Tech"
+            Desirable Criteria → education: "MBA"
+            Example 2:
+            JD states: "MCSE certification is required. PMP certification is preferred."
+
+            Essential Criteria → certifications: "MCSE"
+            Desirable Criteria → certifications: "PMP"
+            Example 3:
+            JD states: "Minimum 5 years of experience required. Experience in government projects is a plus."
+
+            Essential Criteria → experience: "Minimum 5 years"
+            Desirable Criteria → experience: "Experience in government projects"
+            This dynamic classification ensures that each requirement is correctly placed in Essential or Desirable Criteria based on the actual JD text, not assumptions.
+            following is the jd text
+            {jd_text}"""
+                )
     
     try:
         response = openai.chat.completions.create(
@@ -275,7 +314,7 @@ def extract_experience_from_cv(cv_text):
     #print("CV_Text : ",cv_text)
     # Enhanced prompt template specifically for handling overlapping dates
     prompt_template = f"""
-    Please analyze this  {cv_text} carefully to calculate the total years of professional experience. Follow these steps:
+    Please analyze this {cv_text} carefully to calculate the total years of professional experience. Follow these steps:
     
     1. First, list out all date ranges found in chronological order:
        - Replace 'Current' or 'till date' with {current_year}
@@ -288,6 +327,7 @@ def extract_experience_from_cv(cv_text):
        - Format as YYYY-MM-YYYY-MM
        - Format as YYYY-YY.
        - if in the cv_text 'start year' and 'present year' or 'end year' are not mentioned,then extract experience from 'cvtext' , if also not mentioned experience in cvtext then return 0.
+    
     2. Then, merge overlapping periods :
        - Identify any overlapping years
        - Only count overlapping periods once
@@ -436,6 +476,7 @@ cv_cache = {}
 
 def match_cv_with_criteria(cv_text, criteria_json):
     # Generate hash for the CV
+    print("job description:",criteria_json)
     cv_hash = generate_cv_hash(cv_text)
 
     # Check if the CV has already been processed
@@ -452,7 +493,7 @@ def match_cv_with_criteria(cv_text, criteria_json):
         candidate_name = extract_candidate_name_from_cv(cv_text)
 
         # Load criteria JSON
-        criteria = json.loads(criteria_json)
+        # criteria = json.loads(criteria_json)
 
         # Extract total years of experience
         experience_info = extract_experience_from_cv(cv_text)
@@ -463,38 +504,37 @@ def match_cv_with_criteria(cv_text, criteria_json):
         except ValueError:
             total_years = 0
         # Extract required years of experience
-        required_experience = extract_required_experience(criteria.get("experience", "0"))
-
+        #required_experience = extract_required_experience(criteria.get("experience", "0"))
+        
         # Prepare detailed GPT prompt for matching
         prompt = (
-        "CRITICAL INSTRUCTIONS: EVALUATE STRICTLY AGAINST ESSENTIAL CRITERIA ONLY\n\n"
-        "Evaluation Rules:\n"
-        "1. ONLY match against ESSENTIAL CRITERIA from job description\n"
-        "2. COMPLETELY IGNORE Desirable Criteria\n"
-        "3. Candidate MUST PASS if ALL Essential Criteria are met\n"
-        "4. EXCLUDE any requirements from Desirable Criteria in 'Missing Requirements'\n\n"
-        "Essential Criteria Specifics:\n"
-        "- Education: B.E / B.Tech (Any Stream) / MCA / MSc (CS/IT) or post-graduation in (CS/IT)\n"
-        "- Experience: Minimum 8 years total\n"
-        "- Must have minimum 2 web-based development assignments\n\n"
-        "Provide JSON response:\n"
-        "{\n"
-        "  \"Matching Education\": [List of matched ESSENTIAL education qualifications],\n"
-        "  \"Matching Experience\": [List of matched ESSENTIAL work experiences],\n"
-        "  \"Matching Skills\": [List of matched ESSENTIAL skills],\n"
-        "  \"Matching Certifications\": [list of matching certification from essential criteria Only],\n"
-        "  \"Missing Requirements\": [ONLY missing ESSENTIAL requirements],\n"
-        "  \"Skill Stratification\": {\"skill1\": score, \"skill2\": score},\n"
-        "  \"Pass\": true/false based STRICTLY on ESSENTIAL criteria\n"
-        "}\n\n"
-        "Job Description Essential Criteria:\n"
-        f"{criteria_json}\n\n"
-        "Candidate CV:\n"
-        f"{cv_text}\n\n"
-        f"Total Years of Experience: {total_years} Years\n\n"
-        "IMPORTANT: Strictly evaluate ONLY against ESSENTIAL CRITERIA. DO NOT include Desirable Criteria requirements."
-    )
-
+            "CRITICAL INSTRUCTIONS: STRICTLY EVALUATE CANDIDATE'S CV AGAINST ESSENTIAL CRITERIA ONLY,DO NOT use Desirable Criteria for evaluation or rejection. \n\n"
+            "Evaluation Rules:\n"
+            "1. ONLY match against ESSENTIAL CRITERIA from the job description.\n"
+            "2. COMPLETELY IGNORE Desirable Criteria.\n"
+            "3. STRICTLY Candidate MUST PASS if ALL Essential Criteria are met.\n"
+            "4. DO NOT include Desirable Criteria in 'Rejection reasons'.\n"
+            "5. STRICTLY EXCLUDE certifications unless they are explicitly listed under Essential Criteria.\n\n"
+            "6. Skill Stratification must be consistent across all candidates and strictly based on essential criteria from the job description.\n\n"
+            "7. STRICTLY, candidates who fail must have a score of zero and should not receive any skill scores.\n\n"
+            "Extract and evaluate ONLY the ESSENTIAL CRITERIA from the job description below:\n"
+            "Job Description Essential Criteria:\n"
+            f"{criteria_json}\n\n"
+            "Candidate CV:\n"
+            f"{cv_text}\n\n"
+            f"Total Years of Experience: {total_years} Years\n\n"
+            "IMPORTANT: STRICTLY follow these instructions:\n"
+            "- Provide the evaluation in JSON format as follows:\n\n"
+            "{\n"
+            "  \"Matching Education\": [List of matched ESSENTIAL education qualifications],\n"
+            "  \"Matching Experience\": [List of matched ESSENTIAL work experiences],\n"
+            "  \"Matching Skills\": [List of matched ESSENTIAL skills],\n"
+            "  \"Matching Certifications\": [List of matching certifications from essential criteria only],\n"
+            "  \"Rejection reasons\": [List of rejection reasons based ONLY on essential criteria],\n"
+            "  \"Skill Stratification\": {\"skill1\": score, \"skill2\": score} (STRICTLY provide 5 Stratification no more than 5 and also no less than 5 it is a fixed provide five Stratification, all candidate have same Skill and also those candidate have fail then don't provide the socre is strictly proivde zero(0)),\n"
+            "  \"Pass\": true/false (STRICTLY based on essential criteria only)\n"
+            "}"
+        )
 
         # Fetch GPT-3.5 analysis
         response = openai.chat.completions.create(
@@ -527,7 +567,7 @@ def match_cv_with_criteria(cv_text, criteria_json):
                         "Matching Experience": [],
                         "Matching Skills": [],
                         "Matching Certifications": [],
-                        "Missing Requirements": [],
+                        "Rejection reasons": [],
                         "Skill Stratification": {},
                         "Pass": False
                     }
@@ -543,7 +583,7 @@ def match_cv_with_criteria(cv_text, criteria_json):
             "Matching Experience": matching_results.get('Matching Experience', []),
             "Matching Skills": matching_results.get('Matching Skills', []),
             "Matching Certifications": matching_results.get('Matching Certifications', []),
-            "Missing Requirements": matching_results.get('Missing Requirements', []),
+            "Rejection reasons": matching_results.get('Rejection reasons', []),
             "Stratification": matching_results.get('Skill Stratification', {}),
             "Skill Score": sum(matching_results.get('Skill Stratification', {}).values())
         }
@@ -564,7 +604,7 @@ def match_cv_with_criteria(cv_text, criteria_json):
             "Matching Experience": [],
             "Matching Skills": [],
             "Matching Certifications": [],
-            "Missing Requirements": ["Failed to process CV"],
+            "Rejection reasons": ["Failed to process CV"],
             "Stratification": {},
             "Skill Score": 0
         }
@@ -640,58 +680,46 @@ def get_skill_score_justification(criteria_json, skill, score, cv_text):
 def display_pass_fail_verdict(results, cv_text):
     candidate_name = results['Candidate Name']
     skill_scores = results.get("Stratification", {})
-
-    # Debugging: Print skill_scores to verify the data
-    logging.debug(f"Skill scores for {candidate_name}: {skill_scores}")
+    
+    # Check pass/fail status
+    
+    
+    pass_fail = results.get("Status", "Fail")
+    if pass_fail != 'Pass':
+        return  # Skip displaying failed candidates
 
     with st.container():
-        # Pass/Fail verdict
-        pass_fail = results.get("Status", "Fail")
-        if pass_fail == 'Pass':
-            st.markdown(f"<h2 style='color: green; font-size: 1em;'>🟢 Profile Eligibility: PASS ✔️</h2>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<h2 style='color: red; font-size: 1em;'>🔴 Profile Eligibility: FAIL ❌</h2>", unsafe_allow_html=True)
-
+        # Pass verdict
+        st.markdown(f"### Results for {candidate_name}:")
+        st.markdown(f"<h2 style='color: green; font-size: 1em;'>🟢 Profile Eligibility: PASS ✔️</h2>", unsafe_allow_html=True)
+        
         # Check for skill scores
         if skill_scores:
-            # Create an expander for candidate selection
             expander = st.expander(f"**Click to view {candidate_name}'s detailed skill assessment**")
-
             with expander:
-                # Prepare a table with candidate name, skill, score, and justification
                 table_data = []
-                x=0
                 for skill, score in skill_scores.items():
-                    
-                    # Generate justification dynamically for each skill
                     explanation = get_skill_score_justification(criteria_json, skill, score, cv_text)
-                    x=x+10
-                    # Append the row to the table data
                     table_data.append({
                         "Candidate Name": candidate_name,
                         "Skill": skill,
                         "Score": f"{score}/10",
                         "Justification": explanation
                     })
-                   
+                
                 df = pd.DataFrame(table_data)
                 blankIndex=[''] * len(df)
                 df.index=blankIndex
-                #st.markdown(df.to_html(index=False), unsafe_allow_html=True)
                 st.table(df)
-                total_possible_score = x
-        # Display overall skill score
+                
+                # Display Additional Skill Score
                 Additional_Skill_Score = round(results.get("Skill Score", 0), 1)
                 st.markdown(f"""
-            <h3 style='font-size:20px;'>Additional_Skill_Score: <strong>{Additional_Skill_Score:.1f}</strong> out of {total_possible_score}</h3>
-            """, unsafe_allow_html=True)
-
-        # Pass/Fail message based on the final status
-        if pass_fail == "Pass":
-            st.success("The candidate has passed based on the job description criteria.")
-        else:
-            st.error("The candidate has failed to meet the job description criteria.")
-
+                    <h3 style='font-size:20px;'>Additional Skill Score: <strong>{Additional_Skill_Score:.1f}</strong> out of 50</h3>
+                """, unsafe_allow_html=True)
+        
+        # Success message for passing candidates
+        st.success("The candidate has passed based on the job description criteria.")
         st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -713,7 +741,7 @@ def display_candidates_table(candidates):
             'Matching Experience': ', '.join([str(item) for item in candidate.get('Matching Experience', [])]) or 'None',
             'Matching Skills': ', '.join([str(item) for item in candidate.get('Matching Skills', [])]) or 'None',
             'Matching Certifications': ', '.join([str(item) for item in candidate.get('Matching Certifications', [])]) or 'None',
-            'Missing Requirements': ', '.join([str(item) for item in candidate.get('Missing Requirements', [])]) or 'None',
+            'Rejection reasons': ', '.join([str(item) for item in candidate.get('Rejection reasons', [])]) or 'None',
 
             'Stratification': str(candidate.get('Stratification', {}))
         }
@@ -742,9 +770,9 @@ def display_candidates_table(candidates):
 
     # Reorder columns for better readability
     column_order = [
-        'Candidate Name', 'Status', 'Total Years of Experience', 
-        'Matching Education', 'Matching Experience', 'Matching Skills', 
-        'Matching Certifications', 'Missing Requirements', 
+        'Candidate Name', 'Status', 'Rejection reasons','Total Years of Experience', 
+        'Matching Education', 'Matching Experience',  
+        'Matching Certifications',  
         'Skill Score', 'Stratification'
     ]
     df = df[column_order]
@@ -802,7 +830,7 @@ if st.button("Extract Criteria and Match Candidates"):
         #print("jdtext:",jd_text)
         if jd_text:
             criteria_json = use_genai_to_extract_criteria(jd_text)
-            #print("criteria jd text",criteria_json)
+            print("criteria jd text",criteria_json)
             if criteria_json:
                 # Save criteria in session state
                 st.session_state.criteria_json = criteria_json
@@ -818,7 +846,7 @@ if st.button("Extract Criteria and Match Candidates"):
                             if results:
                                 candidates_results.append(results)
                         else:
-                            st.error(f"Failed to extract text from CV file.")
+                            st.error("Failed to extract text from CV file.")
                     
                     # Display candidates table first
                     if candidates_results:
@@ -826,7 +854,7 @@ if st.button("Extract Criteria and Match Candidates"):
                         
                     # Then display individual matching details
                     for result in candidates_results:
-                        st.markdown(f"### Results for {result['Candidate Name']}:")
+                        #st.markdown(f"### Results for {result['Candidate Name']}:")
                         display_pass_fail_verdict(result, cv_text)
                 else:
                     st.error("Please upload at least one CV PDF.")
