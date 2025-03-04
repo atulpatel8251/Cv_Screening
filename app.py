@@ -870,7 +870,7 @@ disclaimer_text = """
 <div style="color: grey; margin-top: 50px;">
     <strong>Disclaimer:</strong> Certification validity must be verified manually. 
     These results are AI-generated, and candidates should be thoroughly evaluated 
-    through technical interviews For the information provided in their resumes. 
+    through technical interviews. 
     
 </div>
 """
