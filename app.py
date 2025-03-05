@@ -530,7 +530,7 @@ def match_cv_with_criteria(cv_text, criteria_json):
             "  \"Matching Experience\": [List of matched ESSENTIAL work experiences],\n"
             "  \"Matching Skills\": [List of matched ESSENTIAL skills],\n"
             "  \"Matching Certifications\": [List of matching certifications from essential criteria only],\n"
-            "  \"Rejection reasons\": [List of rejection reasons based ONLY on essential criteria],\n"
+            "  \"Rejection reasons\": [Strictly List of Rejection Reasons According to essential criteria],\n"
             "  \"Skill Stratification\": {\"skill1\": score, \"skill2\": score} (STRICTLY provide 5 Stratification no more than 5 and also no less than 5 it is a fixed provide five Stratification, all candidate have same Skill and also those candidate have fail then don't provide the socre is strictly proivde zero(0)),\n"
             "  \"Pass\": true/false (STRICTLY based on essential criteria only)\n"
             "}"
