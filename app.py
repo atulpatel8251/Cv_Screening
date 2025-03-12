@@ -31,30 +31,7 @@ logo_image = Image.open('assests/HD_Human_Resources_Banner.jpg')
 resized_logo = logo_image.resize((1500, 300), Image.LANCZOS)  # Maintain quality during resizing
 
 # Display the logo
-st.image(resized_logo)  # Dynamically adjust width
-
-# Function to add background image from a local file
-def add_bg_from_local(image_file,opacity=0.7):
-    with open(image_file, "rb") as image:
-        encoded_image = base64.b64encode(image.read()).decode()
-
-    # Inject custom CSS for background
-    st.markdown(
-        f"""
-        <style>
-        .stApp {{
-            background-image: linear-gradient(rgba(255, 255, 255, {opacity}), rgba(255, 255, 255, {opacity})),url("data:assests/logo.jfif;base64,{encoded_image}");
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-# Call the function with your image path
-#add_bg_from_local('assests/OIP.jfif')  # Adjust path to your image file
+st.image(resized_logo, use_container_width=True)  # Dynamically adjust width
 
 # Add styled container for the title and description with a maximum width
 st.markdown("""
@@ -88,12 +65,9 @@ with open('style.css') as f:
 # Example: Add your image handling or other logic here
 images = ['6MarkQ']
 
-
 openai.api_key = st.secrets["secret_section"]["OPENAI_API_KEY"]
 
 # Function to extract text from PDF uploaded via Streamlit
-
-
 def extract_text_from_doc(file_path):
     """
     Extract text from a .doc file using Spire.Doc
@@ -876,47 +850,35 @@ disclaimer_text = """
 """
 
 st.markdown(disclaimer_text, unsafe_allow_html=True)
-
-     
-        
+       
 footer = """
     <style>
-    body {
-        margin: 0;
-        padding-top: 70px;  /* Add padding to prevent content from being hidden behind the footer */
-    }
-    .footer {
-        position: absolute;
-        top: 80px;
-        left: 0;
-        width: 100%;
-        background-color: #002F74;
-        color: white;
-        text-align: center;
-        padding: 5px;
-        font-weight: bold;
-        z-index: 1000;  /* Ensure it is on top of other elements */
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-    }
-    .footer p {
-        font-style: italic;
-        font-size: 14px;
-        margin: 0;
-        flex: 1 1 50%;  /* Flex-grow, flex-shrink, flex-basis */
-    }
-    @media (max-width: 600px) {
-        .footer p {
-            flex-basis: 100%;
+        .footer {
+            position: fixed;    /* Fixed at the bottom */
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: #002F74;
+            color: white;
             text-align: center;
-            padding-top: 10px;
+            padding: 5px;
+            font-weight: bold;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
         }
-    }
+        .footer p {
+            font-style: italic;
+            font-size: 14px;
+            margin: 0;
+            flex: 1 1 50%;
+        }    
     </style>
     <div class="footer">
         <p style="text-align: left;">Copyright © 2024 MPSeDC. All rights reserved.</p>
         <p style="text-align: right;">The responses provided on this website are AI-generated. User discretion is advised.</p>
     </div>
 """
+st.markdown(footer, unsafe_allow_html=True)
