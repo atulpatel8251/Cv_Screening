@@ -31,7 +31,7 @@ logo_image = Image.open('assests/HD_Human_Resources_Banner.jpg')
 resized_logo = logo_image.resize((1500, 300), Image.LANCZOS)  # Maintain quality during resizing
 
 # Display the logo
-st.image(resized_logo, use_container_width=True)  # Dynamically adjust width
+st.image(resized_logo)  # Dynamically adjust width
 
 # Add styled container for the title and description with a maximum width
 st.markdown("""
