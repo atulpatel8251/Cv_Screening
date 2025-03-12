@@ -1,4 +1,4 @@
-streamlit==1.38.0
+streamlit
 openai
 PyPDF2==3.0.1
 python-docx
