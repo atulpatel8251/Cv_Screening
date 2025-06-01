@@ -5,4 +5,4 @@ python-docx
 langchain==0.3.4
 Spire.Doc
 docx2txt
-
+pdfplumber
