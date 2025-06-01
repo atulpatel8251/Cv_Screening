@@ -1,23 +1,13 @@
-import openai
-import PyPDF2
-import io
-import json
-import hashlib
-import re
+import openai,PyPDF2,io,json,hashlib,re,docx2txt,logging,os,tempfile,pdfplumber,textract
 from datetime import datetime
+from PyPDF2 import PdfReader
 import pandas as pd
 import streamlit as st
 from PIL import Image
-import base64
-import docx
-import docx2txt
-import logging
-import os
-from dateutil import parser
-from dateutil.relativedelta import relativedelta
-import tempfile
 from spire.doc import Document
-
+# from docx import Document
+from dotenv import load_dotenv
+load_dotenv()
 logging.basicConfig(filename='app.log', level=logging.ERROR)
 
 # Set Streamlit to use wide mode for the full width of the page
@@ -66,6 +56,7 @@ with open('style.css') as f:
 images = ['6MarkQ']
 
 openai.api_key = st.secrets["secret_section"]["OPENAI_API_KEY"]
+#openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Function to extract text from PDF uploaded via Streamlit
 def extract_text_from_doc(file_path):
@@ -100,25 +91,54 @@ def extract_text_from_uploaded_pdf(uploaded_file):
         str: Extracted text from the file or an empty string if an error occurs
     """
     try:
-        # Determine the file type
         file_type = uploaded_file.name.split('.')[-1].lower()
-
+        file_bytes = uploaded_file.read()
+        text = ""
         if file_type == "pdf":
-            # Extract text from PDF
-            pdf_reader = PyPDF2.PdfReader(io.BytesIO(uploaded_file.read()))
-            text = "\n".join(page.extract_text() for page in pdf_reader.pages if page.extract_text())
+            # Extract tables using pdfplumber
+            with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                for page in pdf.pages:
+                    tables = page.extract_tables()
+                    if tables:
+                        for table in tables:
+                            for row in table:
+                                row_text = "\t".join([cell or "" for cell in row])
+                                text += row_text + "\n"
+
+            # Extract plain text using PyPDF2
+            reader = PdfReader(io.BytesIO(file_bytes))
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+
             return text.strip()
-
         elif file_type == "docx":
-            # Extract text from DOCX
-            doc = docx2txt.process(uploaded_file)
-            #print(doc)
-            return doc.strip()
+            try:
+                # Save the uploaded file to a temporary file
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+                    tmp.write(file_bytes)
+                    tmp_path = tmp.name
 
+                # Extract main text using docx2txt
+                text = docx2txt.process(tmp_path)
+
+                # Now also extract tables using python-docx
+                document = Document(tmp_path)
+                for table in document.tables:
+                    for row in table.rows:
+                        row_data = [cell.text.strip() for cell in row.cells]
+                        text += "\n" + "\t".join(row_data)
+
+                return text.strip()
+
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
         elif file_type == "doc":
             # For .doc files, we need to save it temporarily and use Spire.Doc
             with tempfile.NamedTemporaryFile(delete=False, suffix='.doc') as tmp_file:
-                tmp_file.write(uploaded_file.read())
+                tmp_file.write(file_bytes)
                 tmp_file_path = tmp_file.name
 
             try:
@@ -129,10 +149,8 @@ def extract_text_from_uploaded_pdf(uploaded_file):
                 # Clean up the temporary file
                 if os.path.exists(tmp_file_path):
                     os.unlink(tmp_file_path)
-
         else:
-            # Show error message for unsupported file types
-            st.error("This file type is not supported. Please upload only PDF, DOCX, or DOC files.", icon="🚫")
+            st.error("Unsupported file type. Please upload only PDF, DOCX, or DOC files.", icon="🚫")
             return ""
 
     except Exception as e:
@@ -140,69 +158,16 @@ def extract_text_from_uploaded_pdf(uploaded_file):
         logging.error(f"Error reading file: {e}")
         return ""
     
-def use_genai_to_extract_essential_criteria(jd_text):
-    prompt = (
-        "Extract and structure the following details from the job description: "
-        "1. Education requirements (mandatory qualifications for the role) "
-        "2. Required experience (minimum required) "
-        "3. Mandatory skills (skills the candidate must have) "
-        "4. Certifications: Separate into 'Essential Certifications' and 'Desired Certifications' based on language in the JD. "
-        "   Certifications with words like 'mandatory', 'required', or 'essential' should be in 'Essential Certifications'. "
-        "   Certifications with words like 'preferred', 'nice-to-have', 'Desirable Skill', 'Desirable Criteria' or 'optional' should be in 'Desired Certifications'."
-        "5. Desired skills (additional skills for brownie points). "
-        "The job description is as follows:\n\n"
-        f"{jd_text}\n\n"
-        "Please provide the response as a JSON object with keys: 'education', 'experience', "
-        "'skills', 'essential_certifications', 'desired_certifications', 'desired_skills'."
-    )
-    
-    try:
-        response = openai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "system", "content": "You are a helpful assistant."},
-                      {"role": "user", "content": prompt}],
-            max_tokens=1500,
-            temperature=0
-        )
-        
-        content = response.choices[0].message.content.strip()
-        
-        try:
-            extracted_criteria = json.loads(content)
-            return extracted_criteria
-        except json.JSONDecodeError:
-            st.error("Failed to parse JSON from AI response. Here's the raw response:")
-            st.write(content)
-            return {}
-    except Exception as e:
-        st.error(f"Error with OpenAI API: {e}")
-        return {}
-
-def classify_criteria(criteria_json):
-    essential_criteria = {
-        "Education": criteria_json.get("education", "Not specified"),
-        "Experience": criteria_json.get("experience", "Not specified"),
-        "Skills": criteria_json.get("skills", "Not specified"),
-        "Essential Certifications": criteria_json.get("essential_certifications", "Not specified"),
-    }
-
-    desired_skills = {
-        "Desired Certifications": criteria_json.get("desired_certifications", "Not specified"),
-        "Desired Skills": criteria_json.get("desired_skills", "Not specified")
-    }
-
-    return essential_criteria, desired_skills
-# Function to use GenAI to extract criteria from job description
 def use_genai_to_extract_criteria(jd_text):
     #print("job description:",jd_text)
     prompt = (
-        f"""As an expert HR consultant, your task is to analyze the given Job Description (JD) and extract structured information in JSON format. The JD may list job role, education, experience, skills, and certifications under both Essential Criteria and Desirable Criteria, so you must carefully read the JD text and classify each requirement accordingly.
+        f"""As an expert HR consultant and also SME(subject matter expert), your task is to analyze the given Job Description (JD) and extract structured information in JSON format. The JD may list job role, education, experience, skills, and certifications (under both Essential Criteria and Desirable Criteria), so you must carefully read the JD text and classify each requirement accordingly.
             Extraction Guidelines:
             "Essential Criteria" includes:
 
             "education": Qualifications explicitly listed as mandatory or required.
             "experience": Minimum experience required for eligibility.
-            "skills": Only the core skills that are required for the role.
+            "skills": Include only the core skills that are explicitly required for the role. Ensure they align with the required years of experience — for example, if 5+ years of experience is required, include only those skills the candidate is expected to have mastered at that level.
             "certifications": Certifications explicitly required in the JD.
             "Desirable Criteria" includes:
 
@@ -210,10 +175,18 @@ def use_genai_to_extract_criteria(jd_text):
             "experience": Additional experience that is preferred, but not required.
             "skills": Additional or nice-to-have skills.
             "certifications": Certifications mentioned as beneficial, but not required.
+
+            💡 Relevant Education Rule:
+            If no specific qualifications are mentioned in the JD, or if only partial qualifications are listed (e.g., just a domain like "CS(computer science)","IT(information technology)" without degree names), then infer and include **relevant standard degrees** (such as "B.E./B.Tech/Engineering in Computer Science", "MCA", or "MSc IT") based on the job domain. Inferred qualifications should be placed in the **Desirable Criteria > education** section unless the JD explicitly states they are required.
+           
+            **Special Rule for B.E./B.Tech/Engineering:**
+            - If the JD specifically mentions **"B.E./B.Tech/Engineering in CS/IT"**, then only candidates with those specializations should be considered under **Essential Criteria**.
+            - If no such specialization is mentioned and it only says "B.E./B.Tech/Engineering", then all branches of B.E./B.Tech/Engineering graduation are considered eligible.
+
             Key Classification Rules:
-            Do not assume all certifications belong to "desired_skills".
-            If a certification is mandatory, place it in "Essential Criteria".
-            If a certification is preferred, place it in "Desirable Criteria".
+            Do not assume all certifications belong to "desired_skills" strictly follow these rules.
+            **If a certification is mandatory, place it in "Essential Criteria".
+            **If a certification is preferred, place it in "Desirable Criteria".
             Similarly, classify education, experience, and skills based on their mention in the JD.
             Expected JSON Output Format:
 
@@ -233,10 +206,11 @@ def use_genai_to_extract_criteria(jd_text):
             }}
             Example JD Classification Logic:
             Example 1:
-            JD states: "B.E. / B.Tech is required, while an MBA is preferred."
+            JD states: "B.E. / B.Tech /Engineering/ MCA(Master of Computer Applications), MSC IT, MTech is required, while an MBA in IT is preferred."
 
-            Essential Criteria → education: "B.E. / B.Tech"
-            Desirable Criteria → education: "MBA"
+            Essential Criteria → education: "B.E.(Bachelor of Engineering) / B.Tech(Bachelor of Technology)/MCA(Master of Computer Applications)/ MSC(Master of Science) IT/ MTech(Master of Technology)/MBA(Master of Business Administration) in IT"
+            → Desirable Criteria → education: "MBA in IT"
+            
             Example 2:
             JD states: "MCSE certification is required. PMP certification is preferred."
 
@@ -272,11 +246,6 @@ def use_genai_to_extract_criteria(jd_text):
     except Exception as e:
         st.error(f"Error with OpenAI API: {e}")
         return ""
-    
-def calculate_skill_score(skill_scores):
-    # Sum up all the skill scores
-    total_score = sum(skill_scores.values())    
-    return total_score
 
 # Function to extract total years of experience using OpenAI's GPT model
 @st.cache_data
@@ -285,13 +254,13 @@ def extract_experience_from_cv(cv_text):
     x = datetime.now()
     current_year = x.strftime("%m-%Y")
     
-    #print("CV_Text : ",cv_text)
+    print("CV_Text : ",cv_text)
     # Enhanced prompt template specifically for handling overlapping dates
     prompt_template = f"""
     Please analyze this {cv_text} carefully to calculate the total years of professional experience. Follow these steps:
     
     1. First, list out all date ranges found in chronological order:
-       - Replace 'Current' or 'till date' with {current_year}
+       - Replace 'Current' 'Present' or 'till date' with {current_year}
        - Include all years mentioned with positions Formats from following 
        - Format as YYYY-YYYY for each position
        - Format as DD-MM-YYYY - DD-MM-YYYY(For example:10-Jul-12 to 31-Jan-21)
@@ -310,7 +279,10 @@ def extract_experience_from_cv(cv_text):
     3. Calculate total experience:
        - Sum up all non-overlapping periods.
        - Round to one decimal place Return in Sngle Value.
-       -     
+
+    "Only replace vague terms like "Current", "Present", or "till date" with the current year ({current_year})."
+
+    "Do NOT alter explicitly mentioned future dates like 05-2025. Accept and process them as-is."
     """
 
     try:
@@ -335,20 +307,20 @@ def extract_experience_from_cv(cv_text):
         gpt_response = response.choices[0].message.content.strip()
         #print("gpt_response:",gpt_response)
         # Handle "present" or "current year" in the response
-        gpt_response = gpt_response.replace("present", str(current_year)).replace("current", str(current_year))
-        #print("gpt_response:",gpt_response)
+        gpt_response = gpt_response.replace("Present", str(current_year)).replace("current", str(current_year))
+        print("gpt_response:",gpt_response)
         # Extract experience and start year using improved regex
         experience_match = re.findall(r'(\d+(?:\.\d+)?)\s*years?', gpt_response, re.IGNORECASE)
-        #print("experience_match:",experience_match)
+        print("experience_match:",experience_match)
         start_year_match = re.search(r'Start Year:\s*(\d{4})', gpt_response, re.IGNORECASE)
         
         # Extract and convert values
         if experience_match:
     # Choose the most relevant value by looking at the context or largest value
             total_experience = max(map(float, experience_match))
-            #print("total_experience:", total_experience)
+            print("total_experience:", total_experience)
             total_experience = str(round(total_experience, 1))  # Round to one decimal place
-            #print("total_experience2:", total_experience)
+            print("total_experience2:", total_experience)
         else:
             total_experience = "Not found"
 
@@ -385,24 +357,6 @@ def generate_cv_hash(cv_text):
     normalized_text = normalize_cv_text(cv_text)
     return hashlib.sha256(normalized_text.encode()).hexdigest()
 
-def calculate_skill_score(skill_scores):
-    """
-    Calculate the total skill score from the skill stratification.
-    Returns the sum of all skill scores.
-    
-    Args:
-        skill_scores (dict): Dictionary of skills and their scores
-    
-    Returns:
-        float: Total sum of skill scores (not averaged)
-    """
-    if not skill_scores:
-        return 0
-    
-    # Calculate the total sum of scores
-    total_score = sum(skill_scores.values())
-    
-    return total_score
 def extract_candidate_name_from_cv(cv_text):
     """
     Extracts the candidate's name from the {cv_text} content.
@@ -471,14 +425,13 @@ def match_cv_with_criteria(cv_text, criteria_json):
 
         # Extract total years of experience
         experience_info = extract_experience_from_cv(cv_text)
+        #print("total:",experience_info)
         total_years = (experience_info.get("total_years", 0))
         print("total:",total_years)
         try:
             total_years = float(total_years)  # Convert to float if possible
         except ValueError:
             total_years = 0
-        # Extract required years of experience
-        #required_experience = extract_required_experience(criteria.get("experience", "0"))
         
         # Prepare detailed GPT prompt for matching
         prompt = (
@@ -491,6 +444,10 @@ def match_cv_with_criteria(cv_text, criteria_json):
             "5. STRICTLY EXCLUDE certifications unless they are explicitly listed under Essential Criteria.\n\n"
             "6. Skill Stratification must be consistent across all candidates and strictly based on essential criteria from the job description.\n\n"
             "7. STRICTLY, candidates who fail must have a score of zero and should not receive any skill scores.\n\n"
+                "Education Evaluation Logic:\n"
+                    "- Normalize education fields from both JD and CV (e.g., 'CSE', 'CS', 'Computer Science', 'Information Technology' should be treated equivalently).\n"
+                    "- Match abbreviations (e.g., 'B.E.' = 'Bachelor of Engineering' or 'Engineering' , 'B.Tech' = 'Bachelor of Technology').\n"
+                    "- If JD does NOT specify education explicitly or if field/specialization is missing, then DO NOT reject the candidate for education. Instead, if CV contains valid degree (e.g., B.E., B.Tech, MCA, M.Sc IT, MBA in IT), accept it and do NOT return 'None'.\n"
             "Extract and evaluate ONLY the ESSENTIAL CRITERIA from the job description below:\n"
             "Job Description Essential Criteria:\n"
             f"{criteria_json}\n\n"
@@ -500,12 +457,18 @@ def match_cv_with_criteria(cv_text, criteria_json):
             "IMPORTANT: STRICTLY follow these instructions:\n"
             "- Provide the evaluation in JSON format as follows:\n\n"
             "{\n"
-            "  \"Matching Education\": [List of matched ESSENTIAL education qualifications],\n"
-            "  \"Matching Experience\": [List of matched ESSENTIAL work experiences],\n"
-            "  \"Matching Skills\": [List of matched ESSENTIAL skills],\n"
-            "  \"Matching Certifications\": [List of matching certifications from essential criteria only],\n"
-            "  \"Rejection reasons\": [Strictly List of Rejection Reasons According to essential criteria],\n"
-            "  \"Skill Stratification\": {\"skill1\": score, \"skill2\": score} (STRICTLY provide 5 Stratification no more than 5 and also no less than 5 it is a fixed provide five Stratification, all candidate have same Skill and also those candidate have fail then don't provide the socre is strictly proivde zero(0)),\n"
+            "  \"Matching Education\": [List of education qualifications from the cv_text that match the ESSENTIAL education criteria from the criteria_json. If the criteria_json specifies a stream (e.g., IT, CSE, Computer Science), only consider CV qualifications in relevant or related fields.],for BE/Btech/Engineering no specific stream mentioned consider this candidate\n"
+            "  \"Matching Experience\": [List of matched ESSENTIAL cv_text work experiences that align with the required experience stated in the criteria_json. Only include experiences in the relevant domain or field (e.g., IT, finance, healthcare, etc.) and exclude any experience where the candidate has worked with MPSeDC (M.P. State Electronics Development Corporation Ltd) in the last 6 months.],\n"
+            "  \"Matching Skills\": [List of experience from the cv_text that matches the ESSENTIAL experience required by the criteria_json, ensuring it is in the relevant domain or field specified (e.g., IT, finance, healthcare, etc.) and that the candidate has not worked with MPSeDC (M.P. State Electronics Development Corporation Ltd) in the last 6 months. Ensure the skills align with the domain specified in the criteria_json.],\n"
+            "  \"Matching Certifications\": [List of matching cv_text certifications from essential criteria only],\n"
+            "  \"Rejection reasons\": [List of specific reasons why the candidate was rejected based on essential criteria, such as: 'Missing', 'Irrelevant domain experience (e.g., HR, Accounting)', 'Education not matching', 'Mixed or unclear job roles', or 'Insufficient detail to verify essential criteria'],\n"
+            "  \"Skill Stratification\": {\n"
+            "    \"<SkillName1>\": score (1–10)"
+            "    \"<SkillName2>\": score (1–10)"
+            "    \"<SkillName3>\": score (1–10)"
+            "    \"<SkillName4>\": score (1–10)"
+            "    \"<SkillName5>\": score (1–10)"
+            "  } (NOTE: These 5 skills must come ONLY from the Essential Skills listed in the job description. All candidates must be evaluated against the same 5 skills. If the candidate FAILS any essential requirement, all skill scores MUST be 0.),\n"
             "  \"Pass\": true/false (STRICTLY based on essential criteria only)\n"
             "}"
         )
@@ -514,7 +477,7 @@ def match_cv_with_criteria(cv_text, criteria_json):
         response = openai.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are a precise job criteria matcher. Always return valid JSON."},
+                {"role": "system", "content": "You are a precise job criteria matcher or SME. Always return valid JSON."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=1500,
@@ -561,7 +524,7 @@ def match_cv_with_criteria(cv_text, criteria_json):
             "Stratification": matching_results.get('Skill Stratification', {}),
             "Skill Score": sum(matching_results.get('Skill Stratification', {}).values())
         }
-        #print("results",results)
+        print("candidate results",results)
         # Cache results
         cv_cache[cv_hash] = results
 
@@ -582,27 +545,6 @@ def match_cv_with_criteria(cv_text, criteria_json):
             "Stratification": {},
             "Skill Score": 0
         }
-
-def extract_required_experience(experience_str):
-    """
-    Extract numeric value(s) for required experience from a given string.
-    
-    Args:
-    - experience_str (str): The string containing required experience information.
-
-    Returns:
-    - float: The extracted numeric value for required experience.
-    """
-    try:
-        # Use regex to find all numbers in the string and convert them to floats
-        numbers = re.findall(r'\d+', experience_str)
-        
-        # Convert found numbers to floats and return the maximum value found (assuming multiple values)
-        return max(float(num) for num in numbers) if numbers else 0.0
-        
-    except Exception as e:
-        st.warning(f"Couldn't extract a numeric value from required experience: {experience_str}. Error: {e}")
-        return 0.0  # Default to 0 if extraction fails
     
 def get_skill_score_justification(criteria_json, skill, score, cv_text):
     """
@@ -801,26 +743,41 @@ if 'criteria_json' not in st.session_state:
 if st.button("Extract Criteria and Match Candidates"):
     if jd_file:
         jd_text = extract_text_from_uploaded_pdf(jd_file)
-        #print("jdtext:",jd_text)
+        print("jdtext:", jd_text)
         if jd_text:
             criteria_json = use_genai_to_extract_criteria(jd_text)
-            print("criteria jd text",criteria_json)
+            print("criteria jd text", criteria_json)
             if criteria_json:
-                # Save criteria in session state
                 st.session_state.criteria_json = criteria_json
                 st.success("Job description criteria extracted successfully.")
 
-                # Proceed to match candidates
                 if cv_files:
                     candidates_results = []
                     for cv_file in cv_files:
-                        cv_text = extract_text_from_uploaded_pdf(cv_file)
-                        if cv_text:
-                            results = match_cv_with_criteria(cv_text, st.session_state.criteria_json)
-                            if results:
-                                candidates_results.append(results)
-                        else:
-                            st.error("Failed to extract text from CV file.")
+                        # st.write(f"📄 Processing CV: {cv_file.name}")
+                        try:
+                            cv_text = extract_text_from_uploaded_pdf(cv_file)
+                            if not cv_text.strip():
+                                st.error(f"❌ No text extracted from {cv_file.name}")
+                                continue
+
+                            # Optional: Try to extract candidate name
+                            candidate_name = "Unknown"
+                            try:
+                                result = match_cv_with_criteria(cv_text, st.session_state.criteria_json)
+                                candidate_name = result.get("Candidate Name", "Unknown")
+                            except Exception as e:
+                                st.error(f"❌ Failed to match {cv_file.name}: {e}")
+                                continue
+
+                            if result:
+                                result["File Name"] = cv_file.name  # Optional tracking
+                                candidates_results.append(result)
+                                # st.success(f"✅ Matched: {candidate_name} from {cv_file.name}")
+                            else:
+                                st.warning(f"⚠️ No match result for {cv_file.name}")
+                        except Exception as e:
+                            st.error(f"❌ Error processing {cv_file.name}: {e}")
                     
                     # Display candidates table first
                     if candidates_results:
@@ -877,7 +834,7 @@ footer = """
         }    
     </style>
     <div class="footer">
-        <p style="text-align: left;">Copyright © 2024 MPSeDC. All rights reserved.</p>
+        <p style="text-align: left;">Copyright © 2025 MPSeDC. All rights reserved.</p>
         <p style="text-align: right;">The responses provided on this website are AI-generated. User discretion is advised.</p>
     </div>
 """
