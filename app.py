@@ -114,27 +114,11 @@ def extract_text_from_uploaded_pdf(uploaded_file):
 
             return text.strip()
         elif file_type == "docx":
-            try:
-                # Save the uploaded file to a temporary file
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
-                    tmp.write(file_bytes)
-                    tmp_path = tmp.name
-
-                # Extract main text using docx2txt
-                text = docx2txt.process(tmp_path)
-
-                # Now also extract tables using python-docx
-                document = Document(tmp_path)
-                for table in document.tables:
-                    for row in table.rows:
-                        row_data = [cell.text.strip() for cell in row.cells]
-                        text += "\n" + "\t".join(row_data)
-
-                return text.strip()
-
-            finally:
-                if os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
+            # Extract text from DOCX
+            doc = docx2txt.process(uploaded_file)
+            #print(doc)
+            return doc.strip()
+            
         elif file_type == "doc":
             # For .doc files, we need to save it temporarily and use Spire.Doc
             with tempfile.NamedTemporaryFile(delete=False, suffix='.doc') as tmp_file:
