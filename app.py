@@ -818,7 +818,7 @@ footer = """
         }    
     </style>
     <div class="footer">
-        <p style="text-align: left;">Copyright © 2025 MPSeDC. All rights reserved.</p>
+        <p style="text-align: left;">Copyright v0.3 © 2025 MPSeDC. All rights reserved.</p>
         <p style="text-align: right;">The responses provided on this website are AI-generated. User discretion is advised.</p>
     </div>
 """
